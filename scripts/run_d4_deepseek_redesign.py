@@ -16,7 +16,7 @@ EXPECTED_DATA_SHA256 = "0692154aaf20fc6649090c3f49b6b5dd1e693a765ecb5f0856ae0da5
 
 MODEL_BASE = "deepseek-ai/deepseek-llm-7b-chat"
 MODEL_REPO = "TheBloke/deepseek-llm-7B-chat-GGUF"
-MODEL_REVISION = "d8fbf4a7e8038f7f3cf66014a4d6ea9ea8febd1f"
+MODEL_REVISION = "176dbbd8eb24f743cbf6b59c3ee9319866f15c9e"
 MODEL_FILE = "deepseek-llm-7b-chat.Q4_K_M.gguf"
 
 PAIR_IDS = [
