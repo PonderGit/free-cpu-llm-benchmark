@@ -49,10 +49,10 @@ jobs:
 
       - name: Download pinned llama.cpp CPU binaries
         run: |
-          curl -L --fail --retry 3             -o llama.tar.gz             https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-ubuntu-x64.tar.gz
+          curl -L --fail --retry 3 -o llama.tar.gz https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-ubuntu-x64.tar.gz
           mkdir -p llama
           tar -xzf llama.tar.gz -C llama
-          find llama -type f -name "llama-*" -exec chmod +x {} ;
+          find llama -type f -name "llama-*" -print0 | xargs -0 chmod +x
           SERVER="$(find llama -type f -name llama-server | head -n 1)"
           if [ -z "$SERVER" ]; then
             echo "llama-server not found" >&2
@@ -79,9 +79,8 @@ jobs:
           set -euo pipefail
           MODEL_PATH="$(cat model_path.txt)"
           mkdir -p results
-          nohup "$LLAMA_SERVER_BIN"             -m "$MODEL_PATH"             --host 127.0.0.1             --port 8080             -t "$(nproc)"             -c 4096             > results/d4_server.log 2>&1 &
+          nohup "$LLAMA_SERVER_BIN" -m "$MODEL_PATH" --host 127.0.0.1 --port 8080 -t "$(nproc)" -c 4096 > results/d4_server.log 2>&1 &
           echo $! > results/d4_server.pid
-
           ready=0
           for i in $(seq 1 120); do
             if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
