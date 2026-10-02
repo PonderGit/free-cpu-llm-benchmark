@@ -16,6 +16,11 @@ CONFIGS=[
   {"name":"qwen2.5-1.5b-q8","repo":"Qwen/Qwen2.5-1.5B-Instruct-GGUF","selector":"q8_0"},
   {"name":"qwen2.5-7b-q4","repo":"Qwen/Qwen2.5-7B-Instruct-GGUF","selector":"q4_k_m"},
 ]
+ONLY_CONFIG=os.environ.get("ONLY_CONFIG")
+if ONLY_CONFIG:
+    CONFIGS=[x for x in CONFIGS if x["name"]==ONLY_CONFIG]
+    if not CONFIGS:
+        raise RuntimeError(f"Unknown ONLY_CONFIG={ONLY_CONFIG}")
 
 def parse_messages(v):
     x=json.loads(str(v))
@@ -53,8 +58,12 @@ def choose_file(repo, selector):
     c=[f for f in files if f.lower().endswith(".gguf") and selector in f.lower()]
     if not c:
         raise RuntimeError(f"No file matching {selector} in {repo}")
-    c=sorted(c, key=lambda x:(len(x),x))
-    return c[0]
+    c=sorted(c)
+    # Download every matching split so llama.cpp can resolve multipart GGUFs.
+    for fn in c:
+        hf_hub_download(repo_id=repo, filename=fn)
+    first=[fn for fn in c if "-00001-of-" in fn.lower()]
+    return first[0] if first else c[0]
 
 def wait_health(timeout=180):
     t0=time.time()
