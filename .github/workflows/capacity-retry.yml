@@ -1,0 +1,74 @@
+name: Free CPU 7B Capacity Retry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/capacity-retry.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: free-cpu-7b-capacity-retry
+  cancel-in-progress: true
+
+jobs:
+  capacity-retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas huggingface_hub
+          sudo apt-get update -y
+          sudo apt-get install -y curl
+
+      - name: Download pinned llama.cpp CPU binaries
+        run: |
+          curl -L --fail --retry 3             -o llama.tar.gz             https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-ubuntu-x64.tar.gz
+          mkdir -p llama results
+          tar -xzf llama.tar.gz -C llama
+          find llama -type f -name "llama-*" -exec chmod +x {} \;
+          SERVER="$(find llama -type f -name llama-server | head -n 1)"
+          test -n "$SERVER"
+          echo "LLAMA_SERVER_BIN=$SERVER" >> "$GITHUB_ENV"
+
+      - name: Run 7B-only capacity diagnostic
+        env:
+          ONLY_CONFIG: qwen2.5-7b-q4
+        run: |
+          python scripts/run_measurement_audit.py | tee results/capacity_retry_console.txt
+
+      - name: Record execution manifest
+        if: always()
+        run: |
+          {
+            echo "workflow=Free CPU 7B Capacity Retry"
+            echo "gpu_used=false"
+            echo "paid_api_used=false"
+            echo "paid_compute_used=false"
+            echo "sample_expansion=false"
+            echo "purpose=capacity_diagnostic_only"
+            echo "completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > results/capacity_retry_manifest.txt
+
+      - name: Upload capacity artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-cpu-7b-capacity-retry-results
+          path: results/
+          if-no-files-found: warn
+          retention-days: 7
