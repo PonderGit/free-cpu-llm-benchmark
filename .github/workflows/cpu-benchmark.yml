@@ -8,10 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: free-cpu-llm-benchmark
+  cancel-in-progress: true
+
 jobs:
   cpu-benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -27,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install huggingface_hub
           sudo apt-get update -y
-          sudo apt-get install -y curl time
+          sudo apt-get install -y curl
 
       - name: Resolve and download public GGUF model
         run: |
@@ -58,7 +62,7 @@ jobs:
             cat model_manifest.txt
           } > results/environment.txt
 
-      - name: Run throughput benchmark
+      - name: Run CPU throughput benchmark
         shell: bash
         run: |
           set -euo pipefail
@@ -79,52 +83,12 @@ jobs:
             > results/llama_bench.json \
             2> results/llama_bench.stderr
 
-      - name: Run generic A/B smoke tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          MODEL_PATH="$(cat model_path.txt)"
-          CLI="$(find llama -type f -name llama-cli | head -n 1)"
-          if [ -z "$CLI" ]; then
-            echo "llama-cli not found" >&2
-            exit 1
-          fi
-
-          python - <<'PY'
-          from pathlib import Path
-
-          short = """Compare two candidate answers to the same user request.
-          User request: Explain why leaves look green.
-          Answer A: Leaves appear green because chlorophyll absorbs much of the red and blue light and reflects more green light.
-          Answer B: Leaves are green because plants contain green water that shines through the surface.
-          Return only A or B for the better answer."""
-
-          base = """A user asks for a concise explanation of a technical concept. Candidate A is accurate, directly addresses the question, distinguishes assumptions from facts, and avoids unsupported claims. Candidate B is fluent but includes several unsupported details and does not clearly answer the main question. """
-          medium = "Compare two candidate answers and return only A or B for the better answer.\n" + (base * 18)
-
-          Path("short_prompt.txt").write_text(short, encoding="utf-8")
-          Path("medium_prompt.txt").write_text(medium, encoding="utf-8")
-          PY
-
-          THREADS="$(nproc)"
-
-          /usr/bin/time -f "elapsed_sec=%e\nmax_rss_kb=%M" \
-            -o results/smoke_short.time \
-            "$CLI" -m "$MODEL_PATH" -f short_prompt.txt -n 8 -t "$THREADS" --temp 0 \
-            > results/smoke_short.txt \
-            2> results/smoke_short.stderr
-
-          /usr/bin/time -f "elapsed_sec=%e\nmax_rss_kb=%M" \
-            -o results/smoke_medium.time \
-            "$CLI" -m "$MODEL_PATH" -f medium_prompt.txt -n 8 -t "$THREADS" --temp 0 \
-            > results/smoke_medium.txt \
-            2> results/smoke_medium.stderr
-
       - name: Write completion marker
         if: always()
         run: |
           {
             echo "workflow=Free CPU LLM Benchmark"
+            echo "benchmark_scope=throughput_only"
             echo "cost_target=zero-paid-services"
             echo "gpu_used=false"
             echo "paid_api_used=false"
