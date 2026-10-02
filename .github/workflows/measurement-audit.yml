@@ -1,0 +1,73 @@
+name: Free CPU Focused Measurement Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/run_measurement_audit.py"
+      - ".github/workflows/measurement-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: free-cpu-focused-measurement-audit
+  cancel-in-progress: true
+
+jobs:
+  measurement-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas huggingface_hub
+          sudo apt-get update -y
+          sudo apt-get install -y curl
+
+      - name: Download pinned llama.cpp CPU binaries
+        run: |
+          curl -L --fail --retry 3             -o llama.tar.gz             https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-ubuntu-x64.tar.gz
+          mkdir -p llama results
+          tar -xzf llama.tar.gz -C llama
+          find llama -type f -name "llama-*" -exec chmod +x {} \;
+          SERVER="$(find llama -type f -name llama-server | head -n 1)"
+          test -n "$SERVER"
+          echo "LLAMA_SERVER_BIN=$SERVER" >> "$GITHUB_ENV"
+
+      - name: Run focused measurement audit
+        run: |
+          python scripts/run_measurement_audit.py | tee results/measurement_console.txt
+
+      - name: Record execution manifest
+        if: always()
+        run: |
+          {
+            echo "workflow=Free CPU Focused Measurement Audit"
+            echo "gpu_used=false"
+            echo "paid_api_used=false"
+            echo "paid_compute_used=false"
+            echo "sample_expansion=false"
+            echo "purpose=diagnostic_only_not_final_model_selection"
+            echo "completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > results/measurement_execution_manifest.txt
+
+      - name: Upload diagnostic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-cpu-focused-measurement-audit-results
+          path: results/
+          if-no-files-found: warn
+          retention-days: 7
