@@ -66,7 +66,7 @@ jobs:
           from huggingface_hub import hf_hub_download
           from pathlib import Path
           repo="TheBloke/deepseek-llm-7B-chat-GGUF"
-          rev="d8fbf4a7e8038f7f3cf66014a4d6ea9ea8febd1f"
+          rev="176dbbd8eb24f743cbf6b59c3ee9319866f15c9e"
           fn="deepseek-llm-7b-chat.Q4_K_M.gguf"
           p=hf_hub_download(repo_id=repo,filename=fn,revision=rev)
           Path("model_path.txt").write_text(p,encoding="utf-8")
