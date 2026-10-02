@@ -1,0 +1,111 @@
+name: Free CPU Bounded Data Pilot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/run_pilot.py"
+      - ".github/workflows/real-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: free-cpu-bounded-data-pilot
+  cancel-in-progress: true
+
+jobs:
+  bounded-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas huggingface_hub
+          sudo apt-get update -y
+          sudo apt-get install -y curl
+
+      - name: Resolve public GGUF model
+        run: |
+          python scripts/prepare_model.py
+
+      - name: Download pinned llama.cpp CPU binaries
+        run: |
+          curl -L --fail --retry 3 \
+            -o llama.tar.gz \
+            https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-ubuntu-x64.tar.gz
+          mkdir -p llama results
+          tar -xzf llama.tar.gz -C llama
+          find llama -type f -name "llama-*" -exec chmod +x {} \;
+
+      - name: Start local CPU inference server
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_PATH="$(cat model_path.txt)"
+          SERVER="$(find llama -type f -name llama-server | head -n 1)"
+          if [ -z "$SERVER" ]; then
+            echo "llama-server not found" >&2
+            exit 1
+          fi
+          nohup "$SERVER" \
+            -m "$MODEL_PATH" \
+            --host 127.0.0.1 \
+            --port 8080 \
+            -t "$(nproc)" \
+            -c 4096 \
+            > results/server.log 2>&1 &
+          echo $! > results/server.pid
+
+          ready=0
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "Server failed to become healthy" >&2
+            tail -n 100 results/server.log || true
+            exit 1
+          fi
+
+      - name: Run full dataset audit and bounded real pilot
+        env:
+          LLAMA_SERVER_URL: http://127.0.0.1:8080
+        run: |
+          python scripts/run_pilot.py | tee results/pilot_console.txt
+
+      - name: Record execution manifest
+        if: always()
+        run: |
+          {
+            echo "workflow=Free CPU Bounded Data Pilot"
+            echo "public_data=true"
+            echo "gpu_used=false"
+            echo "paid_api_used=false"
+            echo "paid_compute_used=false"
+            echo "pilot_model_status=technical_feasibility_only_not_frozen"
+            echo "completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > results/execution_manifest.txt
+
+      - name: Upload audit and pilot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-cpu-bounded-data-pilot-results
+          path: results/
+          if-no-files-found: warn
+          retention-days: 7
